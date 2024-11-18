@@ -61,8 +61,8 @@ contract SolarPanelRental {
 
     // Function to add a new panel to a specific site
     function addPanel(uint256 _panelId, uint256 _siteId, uint256 _rentalPrice) public onlyOwner {
+        require(sites[_siteId].siteId != 0, "Site does not exist."); // Ensure the site exists
         require(!panels[_panelId].isAvailable, "Panel already exists.");
-        require(sites[_siteId].siteId != 0, "Site does not exist.");
 
         panels[_panelId] = Panel({
             panelId: _panelId,
@@ -79,8 +79,9 @@ contract SolarPanelRental {
     }
 
     // Function to rent a panel from a specific site
-    function rentPanel(uint256 _panelId, uint256 _rentalDuration) public payable {
+    function rentPanel(uint256 _panelId, uint256 _siteId, uint256 _rentalDuration) public payable {
         Panel storage panel = panels[_panelId];
+        require(panel.siteId == _siteId, "Panel is not located at the specified site.");
         require(panel.isAvailable, "Panel is not available for rent.");
         require(msg.value >= panel.rentalPrice * _rentalDuration, "Insufficient payment.");
 
@@ -101,8 +102,9 @@ contract SolarPanelRental {
     }
 
     // Function to return a rented panel
-    function returnPanel(uint256 _panelId) public {
+    function returnPanel(uint256 _panelId, uint256 _siteId) public {
         Panel storage panel = panels[_panelId];
+        require(panel.siteId == _siteId, "Panel is not located at the specified site.");
         require(panel.currentRenter == msg.sender, "You are not the renter of this panel.");
         require(panel.rentalEnd <= block.timestamp, "Rental period not yet over.");
 
@@ -119,24 +121,53 @@ contract SolarPanelRental {
         emit PanelReturned(msg.sender, _panelId, panel.siteId, block.timestamp);
     }
 
-    // Function to check if a panel is available
-    function checkAvailability(uint256 _panelId) public view returns (bool) {
-        return panels[_panelId].isAvailable;
+    // Function to check if a panel is available at a specific site
+    function checkAvailability(uint256 _panelId, uint256 _siteId) public view returns (bool) {
+        require(sites[_siteId].siteId != 0, "Site does not exist.");
+        return panels[_panelId].isAvailable && panels[_panelId].siteId == _siteId;
     }
 
-    // Function to get the rental price of a panel
-    function getRentalPrice(uint256 _panelId) public view returns (uint256) {
+    // Function to get the rental price of a panel at a specific site
+    function getRentalPrice(uint256 _panelId, uint256 _siteId) public view returns (uint256) {
+        require(sites[_siteId].siteId != 0, "Site does not exist.");
         return panels[_panelId].rentalPrice;
     }
 
-    // Function to retrieve the current renter of a panel
-    function getCurrentRenter(uint256 _panelId) public view returns (address) {
+    // Function to retrieve the current renter of a panel at a specific site
+    function getCurrentRenter(uint256 _panelId, uint256 _siteId) public view returns (address) {
+        require(sites[_siteId].siteId != 0, "Site does not exist.");
         return panels[_panelId].currentRenter;
     }
 
     // Function to get the details of a site (location, name, and available panels)
-    function getSiteDetails(uint256 _siteId) public view returns (string memory, string memory, uint256, uint256) {
+    function getSiteDetails(uint256 _siteId) public view returns (string memory siteName, string memory location, uint256 totalPanels, uint256 availablePanels) {
+        require(sites[_siteId].siteId != 0, "Site does not exist.");
         Site storage site = sites[_siteId];
         return (site.siteName, site.location, site.totalPanels, site.availablePanels);
+    }
+
+    // Function to get all panels available at a specific site
+    function getAvailablePanelsAtSite(uint256 _siteId) public view returns (uint256[] memory) {
+        require(sites[_siteId].siteId != 0, "Site does not exist.");
+        uint256 totalPanels = sites[_siteId].totalPanels;
+        uint256 availableCount = 0;
+
+        // Count the available panels
+        for (uint256 i = 0; i < totalPanels; i++) {
+            if (panels[i].siteId == _siteId && panels[i].isAvailable) {
+                availableCount++;
+            }
+        }
+
+        uint256[] memory availablePanelIds = new uint256[](availableCount);
+        uint256 index = 0;
+        for (uint256 i = 0; i < totalPanels; i++) {
+            if (panels[i].siteId == _siteId && panels[i].isAvailable) {
+                availablePanelIds[index] = panels[i].panelId;
+                index++;
+            }
+        }
+
+        return availablePanelIds;
     }
 }
