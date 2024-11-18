@@ -10,22 +10,31 @@ contract SolarPanelRental {
         address currentRenter; // Address of the current renter
         uint256 rentalStart; // Timestamp when the rental starts
         uint256 rentalEnd; // Timestamp when the rental ends
+        uint256 siteId; // The site where the panel is located
+    }
+
+    // Define the site structure (Messukeskus Solar Power Plant)
+    struct Site {
+        uint256 siteId;
+        string siteName;
+        string location;
+        uint256 totalPanels; // Total panels at this site
+        uint256 availablePanels; // Panels available for rent at this site
     }
 
     // Define owner (company that owns the panels)
     address public owner;
 
-    // Mapping to store panels
-    mapping(uint256 => Panel) public panels;
-
-    // Mapping for panel renters to track payments
-    mapping(address => uint256) public renterPayments;
+    // Mappings to store panels and sites
+    mapping(uint256 => Panel) public panels; // Mapping for panels by panelId
+    mapping(uint256 => Site) public sites; // Mapping for sites by siteId
+    mapping(address => uint256) public renterPayments; // Mapping to track payments per renter
 
     // Event when a panel is rented
-    event PanelRented(address indexed renter, uint256 panelId, uint256 startDate, uint256 endDate);
+    event PanelRented(address indexed renter, uint256 panelId, uint256 siteId, uint256 startDate, uint256 endDate);
 
     // Event when a panel is returned
-    event PanelReturned(address indexed renter, uint256 panelId, uint256 returnDate);
+    event PanelReturned(address indexed renter, uint256 panelId, uint256 siteId, uint256 returnDate);
 
     // Constructor sets the contract owner
     constructor() {
@@ -38,34 +47,57 @@ contract SolarPanelRental {
         _;
     }
 
-    // Function to add a new panel to the system
-    function addPanel(uint256 _panelId, uint256 _rentalPrice) public onlyOwner {
+    // Function to add a new site (e.g., Messukeskus Solar Power Plant)
+    function addSite(uint256 _siteId, string memory _siteName, string memory _location, uint256 _totalPanels) public onlyOwner {
+        require(sites[_siteId].siteId == 0, "Site already exists.");
+        sites[_siteId] = Site({
+            siteId: _siteId,
+            siteName: _siteName,
+            location: _location,
+            totalPanels: _totalPanels,
+            availablePanels: _totalPanels
+        });
+    }
+
+    // Function to add a new panel to a specific site
+    function addPanel(uint256 _panelId, uint256 _siteId, uint256 _rentalPrice) public onlyOwner {
         require(!panels[_panelId].isAvailable, "Panel already exists.");
+        require(sites[_siteId].siteId != 0, "Site does not exist.");
+
         panels[_panelId] = Panel({
             panelId: _panelId,
             isAvailable: true,
             rentalPrice: _rentalPrice,
             currentRenter: address(0),
             rentalStart: 0,
-            rentalEnd: 0
+            rentalEnd: 0,
+            siteId: _siteId
         });
+
+        // Update the site's available panels
+        sites[_siteId].availablePanels++;
     }
 
-    // Function to rent a panel
+    // Function to rent a panel from a specific site
     function rentPanel(uint256 _panelId, uint256 _rentalDuration) public payable {
         Panel storage panel = panels[_panelId];
         require(panel.isAvailable, "Panel is not available for rent.");
         require(msg.value >= panel.rentalPrice * _rentalDuration, "Insufficient payment.");
 
+        // Mark panel as rented
         panel.isAvailable = false;
         panel.currentRenter = msg.sender;
         panel.rentalStart = block.timestamp;
         panel.rentalEnd = block.timestamp + (_rentalDuration * 30 days); // Rental duration in days
 
+        // Decrease the available panels at the site
+        Site storage site = sites[panel.siteId];
+        site.availablePanels--;
+
         // Transfer rental fee to the owner
         payable(owner).transfer(msg.value);
 
-        emit PanelRented(msg.sender, _panelId, panel.rentalStart, panel.rentalEnd);
+        emit PanelRented(msg.sender, _panelId, panel.siteId, panel.rentalStart, panel.rentalEnd);
     }
 
     // Function to return a rented panel
@@ -74,12 +106,17 @@ contract SolarPanelRental {
         require(panel.currentRenter == msg.sender, "You are not the renter of this panel.");
         require(panel.rentalEnd <= block.timestamp, "Rental period not yet over.");
 
+        // Mark the panel as available
         panel.isAvailable = true;
         panel.currentRenter = address(0);
         panel.rentalStart = 0;
         panel.rentalEnd = 0;
 
-        emit PanelReturned(msg.sender, _panelId, block.timestamp);
+        // Increase the available panels at the site
+        Site storage site = sites[panel.siteId];
+        site.availablePanels++;
+
+        emit PanelReturned(msg.sender, _panelId, panel.siteId, block.timestamp);
     }
 
     // Function to check if a panel is available
@@ -95,5 +132,11 @@ contract SolarPanelRental {
     // Function to retrieve the current renter of a panel
     function getCurrentRenter(uint256 _panelId) public view returns (address) {
         return panels[_panelId].currentRenter;
+    }
+
+    // Function to get the details of a site (location, name, and available panels)
+    function getSiteDetails(uint256 _siteId) public view returns (string memory, string memory, uint256, uint256) {
+        Site storage site = sites[_siteId];
+        return (site.siteName, site.location, site.totalPanels, site.availablePanels);
     }
 }
