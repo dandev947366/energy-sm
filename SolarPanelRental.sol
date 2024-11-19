@@ -110,6 +110,21 @@ contract SolarPanelRental {
         emit SiteDeleted(_siteId);
     }
 
+    // Add renter
+    function addRenter(address payable walletAddress, string memory firstName, string memory lastName) public onlyOwner {
+        renters[walletAddress] = Renter({
+            walletAddress: walletAddress,
+            firstName: firstName,
+            lastName: lastName,
+            canRent: true,
+            active: false,
+            balance: 0,
+            due: 0,
+            start: 0,
+            end: 0
+        });
+    }
+
     // Function to add a new panel to a specific site
     function addPanel(uint256 _panelId, uint256 _siteId, uint256 _rentalPrice) public onlyOwner {
         require(sites[_siteId].siteId != 0, "Site does not exist.");
@@ -204,4 +219,34 @@ contract SolarPanelRental {
         require(sites[_siteId].siteId != 0, "Site does not exist.");
         return panels[_panelId].rentalPrice;
     }
+
+    // Deposit funds
+    function deposit() public payable {
+        renters[msg.sender].balance += msg.value;
+    }
+
+    // Make a payment
+    function makePayment() public payable {
+        Renter storage renter = renters[msg.sender];
+        require(renter.due > 0, "No due amount to pay.");
+        require(renter.balance >= msg.value, "Insufficient balance.");
+
+        renter.balance -= msg.value;
+        renter.due -= msg.value;
+
+        if (renter.due == 0) {
+            renter.canRent = true;
+        }
+    }
+
+    // Get renter balance
+    function getRenterBalance(address walletAddress) public view returns (uint256) {
+        return renters[walletAddress].balance;
+    }
+
+    // Remove renter
+    function removeRenter(address walletAddress) public onlyOwner {
+        delete renters[walletAddress];
+    }
+}
 }
