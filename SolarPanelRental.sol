@@ -36,6 +36,24 @@ contract SolarPanelRental {
     // Event when a panel is returned
     event PanelReturned(address indexed renter, uint256 panelId, uint256 siteId, uint256 returnDate);
 
+    // Event when a site is added
+    event SiteAdded(uint256 siteId, string siteName, string location);
+
+    // Event when a site is updated
+    event SiteUpdated(uint256 siteId, string siteName, string location);
+
+    // Event when a site is deleted
+    event SiteDeleted(uint256 siteId);
+
+    // Event when a panel is added
+    event PanelAdded(uint256 panelId, uint256 siteId, uint256 rentalPrice);
+
+    // Event when a panel is updated
+    event PanelUpdated(uint256 panelId, uint256 siteId, uint256 rentalPrice);
+
+    // Event when a panel is deleted
+    event PanelDeleted(uint256 panelId, uint256 siteId);
+
     // Constructor sets the contract owner
     constructor() {
         owner = msg.sender;
@@ -44,6 +62,12 @@ contract SolarPanelRental {
     // Modifier to restrict access to only the owner
     modifier onlyOwner() {
         require(msg.sender == owner, "You are not the owner.");
+        _;
+    }
+
+    // Modifier to check if the panel is not rented before performing operations
+    modifier notRented(uint256 _panelId) {
+        require(panels[_panelId].isAvailable, "Panel is currently rented and cannot be modified.");
         _;
     }
 
@@ -57,11 +81,38 @@ contract SolarPanelRental {
             totalPanels: _totalPanels,
             availablePanels: _totalPanels
         });
+        emit SiteAdded(_siteId, _siteName, _location);
+    }
+
+    // Function to update an existing site
+    function updateSite(uint256 _siteId, string memory _siteName, string memory _location) public onlyOwner {
+        require(sites[_siteId].siteId != 0, "Site does not exist.");
+        Site storage site = sites[_siteId];
+        site.siteName = _siteName;
+        site.location = _location;
+        emit SiteUpdated(_siteId, _siteName, _location);
+    }
+
+    // Function to delete a site
+    function deleteSite(uint256 _siteId) public onlyOwner {
+        require(sites[_siteId].siteId != 0, "Site does not exist.");
+        Site storage site = sites[_siteId];
+
+        // Ensure there are no rented panels before deleting the site
+        for (uint256 i = 0; i < site.totalPanels; i++) {
+            Panel storage panel = panels[i];
+            if (panel.siteId == _siteId && !panel.isAvailable) {
+                revert("There are rented panels at this site. Cannot delete site.");
+            }
+        }
+
+        delete sites[_siteId];
+        emit SiteDeleted(_siteId);
     }
 
     // Function to add a new panel to a specific site
     function addPanel(uint256 _panelId, uint256 _siteId, uint256 _rentalPrice) public onlyOwner {
-        require(sites[_siteId].siteId != 0, "Site does not exist."); // Ensure the site exists
+        require(sites[_siteId].siteId != 0, "Site does not exist.");
         require(!panels[_panelId].isAvailable, "Panel already exists.");
 
         panels[_panelId] = Panel({
@@ -74,8 +125,29 @@ contract SolarPanelRental {
             siteId: _siteId
         });
 
-        // Update the site's available panels
         sites[_siteId].availablePanels++;
+        emit PanelAdded(_panelId, _siteId, _rentalPrice);
+    }
+
+    // Function to update a panel's details
+    function updatePanel(uint256 _panelId, uint256 _siteId, uint256 _rentalPrice) public onlyOwner notRented(_panelId) {
+        require(sites[_siteId].siteId != 0, "Site does not exist.");
+        require(panels[_panelId].siteId == _siteId, "Panel does not belong to this site.");
+
+        panels[_panelId].rentalPrice = _rentalPrice;
+        emit PanelUpdated(_panelId, _siteId, _rentalPrice);
+    }
+
+    // Function to delete a panel
+    function deletePanel(uint256 _panelId, uint256 _siteId) public onlyOwner notRented(_panelId) {
+        require(sites[_siteId].siteId != 0, "Site does not exist.");
+        require(panels[_panelId].siteId == _siteId, "Panel does not belong to this site.");
+
+        // Remove the panel and update the site
+        delete panels[_panelId];
+        sites[_siteId].availablePanels--;
+
+        emit PanelDeleted(_panelId, _siteId);
     }
 
     // Function to rent a panel from a specific site
@@ -89,7 +161,7 @@ contract SolarPanelRental {
         panel.isAvailable = false;
         panel.currentRenter = msg.sender;
         panel.rentalStart = block.timestamp;
-        panel.rentalEnd = block.timestamp + (_rentalDuration * 30 days); // Rental duration in days
+        panel.rentalEnd = block.timestamp + (_rentalDuration * 30 days);
 
         // Decrease the available panels at the site
         Site storage site = sites[panel.siteId];
@@ -131,43 +203,5 @@ contract SolarPanelRental {
     function getRentalPrice(uint256 _panelId, uint256 _siteId) public view returns (uint256) {
         require(sites[_siteId].siteId != 0, "Site does not exist.");
         return panels[_panelId].rentalPrice;
-    }
-
-    // Function to retrieve the current renter of a panel at a specific site
-    function getCurrentRenter(uint256 _panelId, uint256 _siteId) public view returns (address) {
-        require(sites[_siteId].siteId != 0, "Site does not exist.");
-        return panels[_panelId].currentRenter;
-    }
-
-    // Function to get the details of a site (location, name, and available panels)
-    function getSiteDetails(uint256 _siteId) public view returns (string memory siteName, string memory location, uint256 totalPanels, uint256 availablePanels) {
-        require(sites[_siteId].siteId != 0, "Site does not exist.");
-        Site storage site = sites[_siteId];
-        return (site.siteName, site.location, site.totalPanels, site.availablePanels);
-    }
-
-    // Function to get all panels available at a specific site
-    function getAvailablePanelsAtSite(uint256 _siteId) public view returns (uint256[] memory) {
-        require(sites[_siteId].siteId != 0, "Site does not exist.");
-        uint256 totalPanels = sites[_siteId].totalPanels;
-        uint256 availableCount = 0;
-
-        // Count the available panels
-        for (uint256 i = 0; i < totalPanels; i++) {
-            if (panels[i].siteId == _siteId && panels[i].isAvailable) {
-                availableCount++;
-            }
-        }
-
-        uint256[] memory availablePanelIds = new uint256[](availableCount);
-        uint256 index = 0;
-        for (uint256 i = 0; i < totalPanels; i++) {
-            if (panels[i].siteId == _siteId && panels[i].isAvailable) {
-                availablePanelIds[index] = panels[i].panelId;
-                index++;
-            }
-        }
-
-        return availablePanelIds;
     }
 }
